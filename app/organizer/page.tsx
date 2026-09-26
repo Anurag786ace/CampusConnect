@@ -3,10 +3,11 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useAuth } from '@/components/AuthProvider'
-import { CampusEvent, EventCategory, EventValidationErrors } from '@/data/events'
+import { CampusEvent, EventCategory, EventValidationErrors, isPastEvent } from '@/data/events'
 import EmptyState from '@/components/EmptyState'
 import StatusBadge from '@/components/StatusBadge'
 import { useStore } from '@/components/StoreProvider'
+import { logToTerminal } from '@/lib/logger'
 
 const CATEGORIES: EventCategory[] = [
   'Tech',
@@ -41,6 +42,7 @@ export default function OrganizerPage() {
     useStore()
 
   const [filterView, setFilterView] = useState<'my' | 'all'>('my')
+  const [timeFilter, setTimeFilter] = useState<'upcoming' | 'past' | 'all'>('upcoming')
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null)
   const [editingEventId, setEditingEventId] = useState<string | null>(null)
   const [formData, setFormData] = useState<EventFormData>(INITIAL_FORM)
@@ -61,10 +63,18 @@ export default function OrganizerPage() {
     )
   }
 
-  const displayedEvents =
+  // Scope events to my events vs all events
+  const scopedEvents =
     filterView === 'my'
       ? events.filter((e) => e.organizerId === currentUser.id)
       : events
+
+  // Hide past events by default ('upcoming'); show only past events when 'past' option is selected
+  const displayedEvents = scopedEvents.filter((e) => {
+    if (timeFilter === 'upcoming') return !isPastEvent(e)
+    if (timeFilter === 'past') return isPastEvent(e)
+    return true
+  })
 
   const openCreateModal = () => {
     setFormData(INITIAL_FORM)
@@ -110,11 +120,11 @@ export default function OrganizerPage() {
         organizerId: currentUser.id,
       })
 
+      setFeedback({ type: res.success ? 'success' : 'error', text: res.message })
+      logToTerminal({ type: 'MESSAGE', message: res.message, level: res.success ? 'info' : 'error' })
       if (!res.success) {
         if (res.errors) setFormErrors(res.errors)
-        setFeedback({ type: 'error', text: res.message })
       } else {
-        setFeedback({ type: 'success', text: res.message })
         closeModal()
       }
     } else if (modalMode === 'edit' && editingEventId) {
@@ -127,11 +137,11 @@ export default function OrganizerPage() {
         capacity: Number(formData.capacity),
       })
 
+      setFeedback({ type: res.success ? 'success' : 'error', text: res.message })
+      logToTerminal({ type: 'MESSAGE', message: res.message, level: res.success ? 'info' : 'error' })
       if (!res.success) {
         if (res.errors) setFormErrors(res.errors)
-        setFeedback({ type: 'error', text: res.message })
       } else {
-        setFeedback({ type: 'success', text: res.message })
         closeModal()
       }
     }
@@ -147,11 +157,8 @@ export default function OrganizerPage() {
     }
 
     const res = cancelEvent(event.id)
-    if (res.success) {
-      setFeedback({ type: 'success', text: res.message })
-    } else {
-      setFeedback({ type: 'error', text: res.message })
-    }
+    setFeedback({ type: res.success ? 'success' : 'error', text: res.message })
+    logToTerminal({ type: 'MESSAGE', message: res.message, level: res.success ? 'info' : 'error' })
   }
 
   const handleDeleteEvent = (event: CampusEvent) => {
@@ -164,11 +171,8 @@ export default function OrganizerPage() {
     }
 
     const res = deleteEvent(event.id)
-    if (res.success) {
-      setFeedback({ type: 'success', text: res.message })
-    } else {
-      setFeedback({ type: 'error', text: res.message })
-    }
+    setFeedback({ type: res.success ? 'success' : 'error', text: res.message })
+    logToTerminal({ type: 'MESSAGE', message: res.message, level: res.success ? 'info' : 'error' })
   }
 
   return (
@@ -236,42 +240,84 @@ export default function OrganizerPage() {
         </div>
       )}
 
-      {/* Filter View Selector */}
+      {/* Filter Scope & Timeframe Selectors */}
       <div
         style={{
           display: 'flex',
-          gap: 10,
+          gap: 16,
           marginBottom: 20,
           alignItems: 'center',
+          flexWrap: 'wrap',
+          justifyContent: 'space-between',
         }}
       >
-        <span style={{ fontSize: 13.5, color: 'var(--ink-soft)' }}>View:</span>
-        <button
-          onClick={() => setFilterView('my')}
-          className={`btn ${filterView === 'my' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ padding: '6px 14px', fontSize: 13 }}
-        >
-          My Events ({events.filter((e) => e.organizerId === currentUser.id).length})
-        </button>
-        <button
-          onClick={() => setFilterView('all')}
-          className={`btn ${filterView === 'all' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ padding: '6px 14px', fontSize: 13 }}
-        >
-          All Campus Events ({events.length})
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13.5, color: 'var(--ink-soft)' }}>Scope:</span>
+          <button
+            onClick={() => setFilterView('my')}
+            className={`btn ${filterView === 'my' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ padding: '6px 14px', fontSize: 13 }}
+          >
+            My Events ({events.filter((e) => e.organizerId === currentUser.id).length})
+          </button>
+          <button
+            onClick={() => setFilterView('all')}
+            className={`btn ${filterView === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ padding: '6px 14px', fontSize: 13 }}
+          >
+            All Campus Events ({events.length})
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13.5, color: 'var(--ink-soft)' }}>Timeline:</span>
+          <button
+            id="organizer-upcoming-filter"
+            onClick={() => setTimeFilter('upcoming')}
+            className={`btn ${timeFilter === 'upcoming' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ padding: '6px 14px', fontSize: 13 }}
+          >
+            Upcoming ({scopedEvents.filter((e) => !isPastEvent(e)).length})
+          </button>
+          <button
+            id="organizer-past-filter"
+            onClick={() => setTimeFilter('past')}
+            className={`btn ${timeFilter === 'past' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ padding: '6px 14px', fontSize: 13 }}
+          >
+            Past events only ({scopedEvents.filter((e) => isPastEvent(e)).length})
+          </button>
+          <button
+            id="organizer-all-filter"
+            onClick={() => setTimeFilter('all')}
+            className={`btn ${timeFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ padding: '6px 14px', fontSize: 13 }}
+          >
+            All ({scopedEvents.length})
+          </button>
+        </div>
       </div>
 
       {displayedEvents.length === 0 ? (
         <EmptyState
-          title="No events found"
+          title={
+            timeFilter === 'past'
+              ? 'No past events found'
+              : timeFilter === 'upcoming'
+                ? 'No upcoming events found'
+                : 'No events found'
+          }
           description={
-            filterView === 'my'
-              ? "You haven't posted any events yet. Click '+ New event' above to create your first event."
-              : 'There are no events in the system.'
+            timeFilter === 'past'
+              ? filterView === 'my'
+                ? "You don't have any past events on record."
+                : 'There are no past events in the system.'
+              : filterView === 'my'
+                ? "You haven't posted any upcoming events yet. Click '+ New event' above to create one."
+                : 'There are no upcoming events in the system.'
           }
           action={
-            filterView === 'my' ? (
+            filterView === 'my' && timeFilter !== 'past' ? (
               <button className="btn btn-primary" onClick={openCreateModal}>
                 + Create event
               </button>
@@ -281,11 +327,14 @@ export default function OrganizerPage() {
       ) : (
         <ul style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {displayedEvents.map((event) => {
+            const isPast = isPastEvent(event)
             const status = event.cancelled
               ? 'cancelled'
-              : event.seatsAvailable <= 0
-                ? 'full'
-                : 'open'
+              : isPast
+                ? 'past'
+                : event.seatsAvailable <= 0
+                  ? 'full'
+                  : 'open'
             const isOwner = event.organizerId === currentUser.id
 
             return (

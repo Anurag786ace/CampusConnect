@@ -7,6 +7,7 @@ import { isPastEvent } from '@/data/events'
 import StatusBadge from '@/components/StatusBadge'
 import EmptyState from '@/components/EmptyState'
 import { useStore } from '@/components/StoreProvider'
+import { logToTerminal } from '@/lib/logger'
 
 export default function RegistrationsPage() {
   const { currentUser } = useAuth()
@@ -15,7 +16,7 @@ export default function RegistrationsPage() {
     type: 'success' | 'error'
     text: string
   } | null>(null)
-  const [activeTab, setActiveTab] = useState<'active' | 'cancelled'>('active')
+  const [activeTab, setActiveTab] = useState<'active' | 'upcoming' | 'past' | 'cancelled'>('active')
 
   if (currentUser.role !== 'student') {
     return (
@@ -46,8 +47,7 @@ export default function RegistrationsPage() {
         item.event !== undefined && !item.event.cancelled,
     )
 
-
-  // Split into upcoming confirmed vs past confirmed (Fix for Task 5: Cancelled registrations appearing)
+  // Split into upcoming confirmed vs past confirmed
   const upcomingRegistrations = validRegistrations.filter(
     ({ reg, event }) => reg.status === 'confirmed' && !isPastEvent(event),
   )
@@ -70,21 +70,260 @@ export default function RegistrationsPage() {
     }
 
     const result = cancelRegistration(registrationId, currentUser.id)
-    if (result.success) {
-      setFeedback({
-        type: 'success',
-        text: result.message,
-      })
-    } else {
-      setFeedback({
-        type: 'error',
-        text: result.message,
-      })
-    }
+    setFeedback({
+      type: result.success ? 'success' : 'error',
+      text: result.message,
+    })
+    logToTerminal({
+      type: 'MESSAGE',
+      message: result.message,
+      level: result.success ? 'info' : 'error',
+    })
   }
 
   const hasAnyActive =
     upcomingRegistrations.length > 0 || pastRegistrations.length > 0
+
+  const renderUpcomingSection = () => (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          marginBottom: 14,
+        }}
+      >
+        <h2 style={{ fontSize: 20 }}>Upcoming events</h2>
+        <span className="eyebrow-tag">
+          {upcomingRegistrations.length}
+        </span>
+      </div>
+      {upcomingRegistrations.length === 0 ? (
+        <p style={{ fontSize: 14, color: 'var(--ink-soft)' }}>
+          No upcoming events registered. Check out the board to find new events!
+        </p>
+      ) : (
+        <ul style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {upcomingRegistrations.map(({ reg, event }) => (
+            <li
+              key={reg.id}
+              className="card-surface"
+              style={{
+                padding: '18px 20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 16,
+                flexWrap: 'wrap',
+              }}
+            >
+              <div>
+                <Link
+                  href={`/events/${event.id}`}
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontWeight: 600,
+                    fontSize: 17,
+                    textDecoration: 'none',
+                  }}
+                >
+                  {event.name}
+                </Link>
+                <div
+                  style={{
+                    fontSize: 13.5,
+                    color: 'var(--ink-soft)',
+                    marginTop: 4,
+                  }}
+                >
+                  {new Date(event.date).toLocaleDateString('en-IN', {
+                    weekday: 'short',
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                  })}{' '}
+                  · {event.venue} ·{' '}
+                  <span style={{ color: 'var(--amber-ink)' }}>
+                    {event.category}
+                  </span>
+                </div>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <StatusBadge status="confirmed" />
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => handleCancel(reg.id, event.name)}
+                  style={{ padding: '8px 14px', fontSize: 13.5 }}
+                >
+                  Cancel registration
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+
+  const renderPastSection = () => (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          marginBottom: 14,
+        }}
+      >
+        <h2 style={{ fontSize: 20 }}>Past events</h2>
+        <span className="eyebrow-tag">
+          {pastRegistrations.length}
+        </span>
+      </div>
+      {pastRegistrations.length === 0 ? (
+        <p style={{ fontSize: 14, color: 'var(--ink-soft)' }}>
+          No past events registered.
+        </p>
+      ) : (
+        <ul style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {pastRegistrations.map(({ reg, event }) => (
+            <li
+              key={reg.id}
+              className="card-surface"
+              style={{
+                padding: '18px 20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 16,
+                flexWrap: 'wrap',
+                opacity: 0.85,
+              }}
+            >
+              <div>
+                <Link
+                  href={`/events/${event.id}`}
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontWeight: 600,
+                    fontSize: 17,
+                    textDecoration: 'none',
+                  }}
+                >
+                  {event.name}
+                </Link>
+                <div
+                  style={{
+                    fontSize: 13.5,
+                    color: 'var(--ink-soft)',
+                    marginTop: 4,
+                  }}
+                >
+                  {new Date(event.date).toLocaleDateString('en-IN', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                  })}{' '}
+                  · {event.venue} · {event.category}
+                </div>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                }}
+              >
+                <StatusBadge status="past" />
+                <span
+                  style={{
+                    fontSize: 13,
+                    color: 'var(--ink-soft)',
+                    fontStyle: 'italic',
+                  }}
+                >
+                  Event ended
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+
+  const renderCancelledSection = () => (
+    <div>
+      {cancelledRegistrations.length === 0 ? (
+        <EmptyState
+          title="No cancelled registrations"
+          description="You haven't cancelled any event registrations."
+        />
+      ) : (
+        <div>
+          <p style={{ marginBottom: 14, fontSize: 14, color: 'var(--ink-soft)' }}>
+            These are events you previously registered for and subsequently cancelled.
+          </p>
+          <ul style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {cancelledRegistrations.map(({ reg, event }) => (
+              <li
+                key={reg.id}
+                className="card-surface"
+                style={{
+                  padding: '18px 20px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 16,
+                  flexWrap: 'wrap',
+                  opacity: 0.75,
+                }}
+              >
+                <div>
+                  <Link
+                    href={`/events/${event.id}`}
+                    style={{
+                      fontFamily: 'var(--font-display)',
+                      fontWeight: 600,
+                      fontSize: 17,
+                      textDecoration: 'none',
+                    }}
+                  >
+                    {event.name}
+                  </Link>
+                  <div
+                    style={{
+                      fontSize: 13.5,
+                      color: 'var(--ink-soft)',
+                      marginTop: 4,
+                    }}
+                  >
+                    {new Date(event.date).toLocaleDateString('en-IN', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                    })}{' '}
+                    · {event.venue} · {event.category}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <StatusBadge status="cancelled" />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
 
   return (
     <section className="shell" style={{ padding: '40px 0 64px' }}>
@@ -133,7 +372,7 @@ export default function RegistrationsPage() {
         </div>
       )}
 
-      {/* Tabs to switch between Active and Cancelled */}
+      {/* Tabs to switch between Active (all), Upcoming, Past, and Cancelled */}
       <div
         style={{
           display: 'flex',
@@ -141,6 +380,7 @@ export default function RegistrationsPage() {
           marginBottom: 24,
           borderBottom: '1.5px solid var(--line)',
           paddingBottom: 8,
+          flexWrap: 'wrap',
         }}
       >
         <button
@@ -148,7 +388,7 @@ export default function RegistrationsPage() {
           style={{
             background: 'none',
             border: 'none',
-            fontSize: 15,
+            fontSize: 14.5,
             fontWeight: 600,
             cursor: 'pointer',
             padding: '6px 12px',
@@ -158,14 +398,48 @@ export default function RegistrationsPage() {
               activeTab === 'active' ? '2.5px solid var(--ink)' : 'none',
           }}
         >
-          Active registrations ({upcomingRegistrations.length + pastRegistrations.length})
+          All Active ({upcomingRegistrations.length + pastRegistrations.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('upcoming')}
+          style={{
+            background: 'none',
+            border: 'none',
+            fontSize: 14.5,
+            fontWeight: 600,
+            cursor: 'pointer',
+            padding: '6px 12px',
+            borderRadius: 'var(--radius)',
+            color: activeTab === 'upcoming' ? 'var(--ink)' : 'var(--ink-soft)',
+            borderBottom:
+              activeTab === 'upcoming' ? '2.5px solid var(--ink)' : 'none',
+          }}
+        >
+          Upcoming ({upcomingRegistrations.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('past')}
+          style={{
+            background: 'none',
+            border: 'none',
+            fontSize: 14.5,
+            fontWeight: 600,
+            cursor: 'pointer',
+            padding: '6px 12px',
+            borderRadius: 'var(--radius)',
+            color: activeTab === 'past' ? 'var(--ink)' : 'var(--ink-soft)',
+            borderBottom:
+              activeTab === 'past' ? '2.5px solid var(--ink)' : 'none',
+          }}
+        >
+          Past ({pastRegistrations.length})
         </button>
         <button
           onClick={() => setActiveTab('cancelled')}
           style={{
             background: 'none',
             border: 'none',
-            fontSize: 15,
+            fontSize: 14.5,
             fontWeight: 600,
             cursor: 'pointer',
             padding: '6px 12px',
@@ -180,7 +454,7 @@ export default function RegistrationsPage() {
         </button>
       </div>
 
-      {activeTab === 'active' ? (
+      {activeTab === 'active' && (
         !hasAnyActive ? (
           <EmptyState
             title="No active registrations"
@@ -193,243 +467,40 @@ export default function RegistrationsPage() {
           />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
-            {/* Upcoming section */}
-            <div>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  marginBottom: 14,
-                }}
-              >
-                <h2 style={{ fontSize: 20 }}>Upcoming events</h2>
-                <span className="eyebrow-tag">
-                  {upcomingRegistrations.length}
-                </span>
-              </div>
-              {upcomingRegistrations.length === 0 ? (
-                <p style={{ fontSize: 14, color: 'var(--ink-soft)' }}>
-                  No upcoming events registered. Check out the board to find new
-                  events!
-                </p>
-              ) : (
-                <ul
-                  style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
-                >
-                  {upcomingRegistrations.map(({ reg, event }) => (
-                    <li
-                      key={reg.id}
-                      className="card-surface"
-                      style={{
-                        padding: '18px 20px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 16,
-                        flexWrap: 'wrap',
-                      }}
-                    >
-                      <div>
-                        <Link
-                          href={`/events/${event.id}`}
-                          style={{
-                            fontFamily: 'var(--font-display)',
-                            fontWeight: 600,
-                            fontSize: 17,
-                            textDecoration: 'none',
-                          }}
-                        >
-                          {event.name}
-                        </Link>
-                        <div
-                          style={{
-                            fontSize: 13.5,
-                            color: 'var(--ink-soft)',
-                            marginTop: 4,
-                          }}
-                        >
-                          {new Date(event.date).toLocaleDateString('en-IN', {
-                            weekday: 'short',
-                            day: 'numeric',
-                            month: 'short',
-                            year: 'numeric',
-                          })}{' '}
-                          · {event.venue} ·{' '}
-                          <span style={{ color: 'var(--amber-ink)' }}>
-                            {event.category}
-                          </span>
-                        </div>
-                      </div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 12,
-                        }}
-                      >
-                        <StatusBadge status="open" />
-                        <button
-                          className="btn btn-secondary"
-                          onClick={() => handleCancel(reg.id, event.name)}
-                          style={{ padding: '8px 14px', fontSize: 13.5 }}
-                        >
-                          Cancel registration
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {/* Past section */}
-            {pastRegistrations.length > 0 && (
-              <div>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    marginBottom: 14,
-                  }}
-                >
-                  <h2 style={{ fontSize: 20 }}>Past events</h2>
-                  <span className="eyebrow-tag">
-                    {pastRegistrations.length}
-                  </span>
-                </div>
-                <ul
-                  style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
-                >
-                  {pastRegistrations.map(({ reg, event }) => (
-                    <li
-                      key={reg.id}
-                      className="card-surface"
-                      style={{
-                        padding: '18px 20px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 16,
-                        flexWrap: 'wrap',
-                        opacity: 0.85,
-                      }}
-                    >
-                      <div>
-                        <Link
-                          href={`/events/${event.id}`}
-                          style={{
-                            fontFamily: 'var(--font-display)',
-                            fontWeight: 600,
-                            fontSize: 17,
-                            textDecoration: 'none',
-                          }}
-                        >
-                          {event.name}
-                        </Link>
-                        <div
-                          style={{
-                            fontSize: 13.5,
-                            color: 'var(--ink-soft)',
-                            marginTop: 4,
-                          }}
-                        >
-                          {new Date(event.date).toLocaleDateString('en-IN', {
-                            day: 'numeric',
-                            month: 'short',
-                            year: 'numeric',
-                          })}{' '}
-                          · {event.venue}
-                        </div>
-                      </div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 12,
-                        }}
-                      >
-                        <StatusBadge status="past" />
-                        <span
-                          style={{
-                            fontSize: 13,
-                            color: 'var(--ink-soft)',
-                            fontStyle: 'italic',
-                          }}
-                        >
-                          Event ended
-                        </span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            {renderUpcomingSection()}
+            {pastRegistrations.length > 0 && renderPastSection()}
           </div>
         )
-      ) : cancelledRegistrations.length === 0 ? (
-        <EmptyState
-          title="No cancelled registrations"
-          description="You haven't cancelled any event registrations."
-        />
-      ) : (
-        <div>
-          <p style={{ marginBottom: 14, fontSize: 14, color: 'var(--ink-soft)' }}>
-            These are events you previously registered for and subsequently
-            cancelled.
-          </p>
-          <ul style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {cancelledRegistrations.map(({ reg, event }) => (
-              <li
-                key={reg.id}
-                className="card-surface"
-                style={{
-                  padding: '18px 20px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 16,
-                  flexWrap: 'wrap',
-                  opacity: 0.75,
-                }}
-              >
-                <div>
-                  <Link
-                    href={`/events/${event.id}`}
-                    style={{
-                      fontFamily: 'var(--font-display)',
-                      fontWeight: 600,
-                      fontSize: 17,
-                      textDecoration: 'none',
-                    }}
-                  >
-                    {event.name}
-                  </Link>
-                  <div
-                    style={{
-                      fontSize: 13.5,
-                      color: 'var(--ink-soft)',
-                      marginTop: 4,
-                    }}
-                  >
-                    {new Date(event.date).toLocaleDateString('en-IN', {
-                      day: 'numeric',
-                      month: 'short',
-                      year: 'numeric',
-                    })}{' '}
-                    · {event.venue}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <StatusBadge status="cancelled" />
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
       )}
+
+      {activeTab === 'upcoming' && (
+        upcomingRegistrations.length === 0 ? (
+          <EmptyState
+            title="No upcoming registrations"
+            description="You are not registered for any upcoming events."
+            action={
+              <Link href="/events" className="btn btn-primary">
+                Browse upcoming events
+              </Link>
+            }
+          />
+        ) : (
+          renderUpcomingSection()
+        )
+      )}
+
+      {activeTab === 'past' && (
+        pastRegistrations.length === 0 ? (
+          <EmptyState
+            title="No past registrations"
+            description="You have no concluded event registrations on record."
+          />
+        ) : (
+          renderPastSection()
+        )
+      )}
+
+      {activeTab === 'cancelled' && renderCancelledSection()}
     </section>
   )
 }
-

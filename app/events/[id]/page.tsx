@@ -7,6 +7,7 @@ import StatusBadge from '@/components/StatusBadge'
 import EmptyState from '@/components/EmptyState'
 import { useAuth } from '@/components/AuthProvider'
 import { useStore } from '@/components/StoreProvider'
+import { logToTerminal } from '@/lib/logger'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-IN', {
@@ -29,8 +30,12 @@ export default function EventDetailPage({
 }: {
   params: { id: string }
 }) {
-  const { currentUser } = useAuth()
+  const { currentUser, setCurrentUserId } = useAuth()
   const { events, registrations, registerForEvent } = useStore()
+
+  const [email, setEmail] = useState('aditi.rao@campus.edu')
+  const [department, setDepartment] = useState('Computer Science')
+  const [notes, setNotes] = useState('')
   const [feedback, setFeedback] = useState<{
     type: 'success' | 'error'
     text: string
@@ -39,6 +44,7 @@ export default function EventDetailPage({
 
   const event = events.find((e) => e.id === params.id)
 
+  // Hide cancelled events from students on the detail page as well
   if (!event || (event.cancelled && currentUser.role === 'student')) {
     return (
       <section className="shell" style={{ padding: '56px 0' }}>
@@ -55,7 +61,6 @@ export default function EventDetailPage({
     )
   }
 
-
   const past = isPastEvent(event)
   const full = isFullEvent(event)
   const status = event.cancelled
@@ -66,24 +71,54 @@ export default function EventDetailPage({
         ? 'full'
         : 'open'
 
-  // Check if current user is already registered for this event
-  const isRegistered = registrations.some(
+  // Check if current user is already registered
+  const existingRegistration = registrations.find(
     (reg) =>
       reg.eventId === event.id &&
       reg.studentId === currentUser.id &&
       reg.status === 'confirmed',
   )
+  const isRegistered = Boolean(existingRegistration)
 
   const isStudent = currentUser.role === 'student'
   const canRegister =
     isStudent && !isRegistered && !past && !full && !event.cancelled
 
-  const handleRegister = () => {
+  const handleRegisterSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+
     if (!isStudent) {
-      setFeedback({
-        type: 'error',
-        text: 'Only student accounts can register. Switch to a student account from the menu above.',
-      })
+      const msg = 'Only student accounts can register. Switch to a student account from the menu above.'
+      setFeedback({ type: 'error', text: msg })
+      logToTerminal({ type: 'MESSAGE', message: msg, level: 'error' })
+      return
+    }
+
+    if (isRegistered) {
+      const msg = 'You are already registered for this event.'
+      setFeedback({ type: 'error', text: msg })
+      logToTerminal({ type: 'MESSAGE', message: msg, level: 'error' })
+      return
+    }
+
+    if (full || event.seatsAvailable <= 0) {
+      const msg = 'This event is full. No seats are available.'
+      setFeedback({ type: 'error', text: msg })
+      logToTerminal({ type: 'MESSAGE', message: msg, level: 'error' })
+      return
+    }
+
+    if (past) {
+      const msg = 'Cannot register for a past event.'
+      setFeedback({ type: 'error', text: msg })
+      logToTerminal({ type: 'MESSAGE', message: msg, level: 'error' })
+      return
+    }
+
+    if (event.cancelled) {
+      const msg = 'Cannot register for a cancelled event.'
+      setFeedback({ type: 'error', text: msg })
+      logToTerminal({ type: 'MESSAGE', message: msg, level: 'error' })
       return
     }
 
@@ -91,17 +126,15 @@ export default function EventDetailPage({
     const result = registerForEvent(event.id, currentUser.id)
     setIsSubmitting(false)
 
-    if (result.success) {
-      setFeedback({
-        type: 'success',
-        text: result.message,
-      })
-    } else {
-      setFeedback({
-        type: 'error',
-        text: result.message,
-      })
-    }
+    setFeedback({
+      type: result.success ? 'success' : 'error',
+      text: result.message,
+    })
+    logToTerminal({
+      type: 'MESSAGE',
+      message: result.message,
+      level: result.success ? 'info' : 'error',
+    })
   }
 
   return (
@@ -135,19 +168,33 @@ export default function EventDetailPage({
           }}
         >
           <span>{feedback.text}</span>
-          {feedback.type === 'success' && (
-            <Link
-              href="/registrations"
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {feedback.type === 'success' && (
+              <Link
+                href="/registrations"
+                style={{
+                  fontWeight: 600,
+                  fontSize: 13.5,
+                  textDecoration: 'underline',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                View in My Registrations →
+              </Link>
+            )}
+            <button
+              onClick={() => setFeedback(null)}
               style={{
-                fontWeight: 600,
-                fontSize: 13.5,
-                textDecoration: 'underline',
-                whiteSpace: 'nowrap',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'inherit',
+                fontWeight: 'bold',
               }}
             >
-              View in My Registrations →
-            </Link>
-          )}
+              ✕
+            </button>
+          </div>
         </div>
       )}
 
@@ -176,12 +223,260 @@ export default function EventDetailPage({
         }}
         className="hero-grid"
       >
-        <div>
-          <span className="eyebrow-tag">{event.category}</span>
-          <h1 style={{ fontSize: 32, marginTop: 12 }}>{event.name}</h1>
-          <p style={{ marginTop: 16, fontSize: 15.5 }}>{event.description}</p>
+        {/* Left Column: Event Overview & Registration Form */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+          <div>
+            <span className="eyebrow-tag">{event.category}</span>
+            <h1 style={{ fontSize: 32, marginTop: 12 }}>{event.name}</h1>
+            <p style={{ marginTop: 16, fontSize: 16, lineHeight: 1.6 }}>
+              {event.description}
+            </p>
+          </div>
+
+          {/* Student Registration Form Card */}
+          <div className="card-surface" style={{ padding: 28 }}>
+            <div style={{ marginBottom: 20 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                }}
+              >
+                <h2 style={{ fontSize: 21 }}>Student Registration</h2>
+                <span
+                  style={{
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 12.5,
+                    color:
+                      event.seatsAvailable <= 5
+                        ? 'var(--rust)'
+                        : 'var(--green)',
+                    fontWeight: 600,
+                  }}
+                >
+                  {event.seatsAvailable > 0
+                    ? `${event.seatsAvailable} seats remaining`
+                    : 'Sold out'}
+                </span>
+              </div>
+              <p style={{ marginTop: 6, fontSize: 14 }}>
+                Fill out the registration details below to reserve your ticket.
+              </p>
+            </div>
+
+            {!isStudent ? (
+              <div
+                style={{
+                  padding: 16,
+                  borderRadius: 'var(--radius)',
+                  background: 'var(--slate-bg)',
+                  border: '1px solid var(--line)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                }}
+              >
+                <div style={{ fontSize: 14, color: 'var(--ink)' }}>
+                  You are currently logged in as an organizer (
+                  <strong>{currentUser.name}</strong>). Registration is
+                  reserved for student accounts.
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setCurrentUserId('stu-1')}
+                  style={{ width: 'fit-content', fontSize: 13 }}
+                >
+                  Switch to Student Account (Aditi Rao)
+                </button>
+              </div>
+            ) : isRegistered ? (
+              <div
+                style={{
+                  padding: 20,
+                  borderRadius: 'var(--radius)',
+                  background: 'var(--green-bg)',
+                  border: '1.5px solid var(--green)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    fontWeight: 700,
+                    color: 'var(--green)',
+                    fontSize: 16,
+                  }}
+                >
+                  <span>✓</span> You have confirmed registration for this event
+                </div>
+                <div style={{ fontSize: 13.5, color: 'var(--ink-soft)' }}>
+                  Registration ID:{' '}
+                  <code>{existingRegistration?.id || 'reg-confirmed'}</code> ·
+                  Booked for <strong>{currentUser.name}</strong> ({currentUser.id})
+                </div>
+                <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
+                  <Link href="/registrations" className="btn btn-primary">
+                    Manage in My Registrations
+                  </Link>
+                </div>
+              </div>
+            ) : past ? (
+              <div
+                style={{
+                  padding: 16,
+                  borderRadius: 'var(--radius)',
+                  background: 'var(--slate-bg)',
+                  color: 'var(--ink-soft)',
+                  fontSize: 14,
+                }}
+              >
+                This event took place on {formatDate(event.date)}. Registrations
+                have concluded.
+              </div>
+            ) : event.cancelled ? (
+              <div
+                style={{
+                  padding: 16,
+                  borderRadius: 'var(--radius)',
+                  background: 'var(--rust-bg)',
+                  color: 'var(--rust)',
+                  fontSize: 14,
+                }}
+              >
+                This event has been cancelled by campus organizers.
+              </div>
+            ) : full ? (
+              <div
+                style={{
+                  padding: 16,
+                  borderRadius: 'var(--radius)',
+                  background: 'var(--rust-bg)',
+                  color: 'var(--rust)',
+                  fontSize: 14,
+                }}
+              >
+                This event has reached full capacity ({event.capacity}/
+                {event.capacity} seats booked). Please check back later if a seat
+                is cancelled.
+              </div>
+            ) : (
+              <form onSubmit={handleRegisterSubmit}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: 14,
+                  }}
+                >
+                  <div className="form-group">
+                    <label className="form-label">Student Name</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={currentUser.name}
+                      readOnly
+                      style={{ background: 'var(--slate-bg)', cursor: 'not-allowed' }}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Student ID</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={currentUser.id}
+                      readOnly
+                      style={{ background: 'var(--slate-bg)', cursor: 'not-allowed' }}
+                    />
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: 14,
+                  }}
+                >
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="reg-email">
+                      Campus Email *
+                    </label>
+                    <input
+                      id="reg-email"
+                      type="email"
+                      required
+                      className="form-input"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="reg-dept">
+                      Department / Major *
+                    </label>
+                    <input
+                      id="reg-dept"
+                      type="text"
+                      required
+                      className="form-input"
+                      value={department}
+                      onChange={(e) => setDepartment(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" htmlFor="reg-notes">
+                    Notes / Requirements (Optional)
+                  </label>
+                  <textarea
+                    id="reg-notes"
+                    rows={2}
+                    className="form-textarea"
+                    placeholder="Dietary preferences, accessibility needs, or team members..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ marginTop: 20 }}>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={!canRegister || isSubmitting}
+                    style={{ width: '100%', padding: '12px' }}
+                  >
+                    {isSubmitting
+                      ? 'Registering your seat…'
+                      : `Complete Registration for ${event.name}`}
+                  </button>
+                  <p
+                    style={{
+                      fontSize: 12.5,
+                      color: 'var(--ink-soft)',
+                      textAlign: 'center',
+                      marginTop: 8,
+                    }}
+                  >
+                    Available seats will update immediately. You can cancel your
+                    seat at any time from My Registrations.
+                  </p>
+                </div>
+              </form>
+            )}
+          </div>
         </div>
 
+        {/* Right Column: Event Details Summary */}
         <aside
           className="card-surface"
           style={{
@@ -197,66 +492,24 @@ export default function EventDetailPage({
           <Detail label="Time" value={formatTime(event.date)} />
           <Detail label="Venue" value={event.venue} />
           <Detail
-            label="Seats"
-            value={`${event.seatsAvailable} of ${event.capacity} available`}
+            label="Available Seats"
+            value={`${event.seatsAvailable} of ${event.capacity} total`}
+          />
+          <Detail label="Organized by" value={event.organizerId} />
+
+          <hr
+            style={{
+              border: 'none',
+              borderTop: '1px solid var(--line)',
+              margin: '6px 0',
+            }}
           />
 
-          {!isStudent ? (
-            <div
-              style={{
-                fontSize: 13,
-                color: 'var(--ink-soft)',
-                background: 'var(--slate-bg)',
-                padding: '10px 12px',
-                borderRadius: 'var(--radius)',
-              }}
-            >
-              Logged in as organizer (<strong>{currentUser.name}</strong>).
-              Switch to a student account in the top-right to register.
-            </div>
-          ) : isRegistered ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div
-                style={{
-                  fontSize: 13.5,
-                  fontWeight: 600,
-                  color: 'var(--green)',
-                  background: 'var(--green-bg)',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius)',
-                  textAlign: 'center',
-                }}
-              >
-                ✓ You are registered for this event
-              </div>
-              <Link
-                href="/registrations"
-                className="btn btn-secondary"
-                style={{ textAlign: 'center', width: '100%' }}
-              >
-                Go to My Registrations
-              </Link>
-            </div>
-          ) : (
-            <button
-              className="btn btn-primary"
-              disabled={!canRegister || isSubmitting}
-              onClick={handleRegister}
-              style={{ marginTop: 4 }}
-            >
-              {isSubmitting
-                ? 'Registering…'
-                : canRegister
-                  ? 'Register for this event'
-                  : event.cancelled
-                    ? 'Registration closed (Cancelled)'
-                    : past
-                      ? 'Registration closed (Past event)'
-                      : full
-                        ? 'Event full (No seats left)'
-                        : 'Registration closed'}
-            </button>
-          )}
+          <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
+            <strong>Registration Policy:</strong> Seats are confirmed on a
+            first-come, first-served basis. No duplicate registrations are
+            permitted per student.
+          </div>
         </aside>
       </div>
     </section>
@@ -271,4 +524,5 @@ function Detail({ label, value }: { label: string; value: string }) {
     </div>
   )
 }
+
 

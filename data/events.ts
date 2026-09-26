@@ -20,7 +20,8 @@ export interface CampusEvent {
 }
 
 // "Today" for the seed data. Events before this are considered past.
-export const TODAY = new Date('2026-09-16T09:00:00')
+// Set to 2026-09-26 so that 22 Sept 2026 and 25 Sept 2026 events are grouped in past events.
+export const TODAY = new Date('2026-09-26T00:00:00')
 
 export const events: CampusEvent[] = [
   {

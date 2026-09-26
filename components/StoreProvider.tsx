@@ -21,6 +21,8 @@ import {
   onRegistrationsChange,
 } from '@/data/registrations'
 
+import { logToTerminal } from '@/lib/logger'
+
 interface StoreContextValue {
   events: CampusEvent[]
   registrations: Registration[]
@@ -79,17 +81,140 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const handleRegisterForEvent = (eventId: string, studentId: string) => {
+    const eventBefore = seedEvents.find((e) => e.id === eventId)
+    const result = dataRegister(eventId, studentId)
+    const eventAfter = seedEvents.find((e) => e.id === eventId)
+
+    logToTerminal({
+      type: 'API_CALL',
+      message: `registerForEvent | Event: "${eventBefore?.name || eventId}" | Student: ${studentId}`,
+      details: {
+        eventId,
+        eventName: eventBefore?.name,
+        studentId,
+        status: result.success ? 'SUCCESS' : 'FAILED',
+        message: result.message,
+        seatsRemaining: eventAfter?.seatsAvailable,
+      },
+      level: result.success ? 'info' : 'error',
+    })
+
+    return result
+  }
+
+  const handleCancelRegistration = (registrationId: string, studentId: string) => {
+    const reg = seedRegistrations.find((r) => r.id === registrationId)
+    const event = reg ? seedEvents.find((e) => e.id === reg.eventId) : undefined
+    const result = dataCancelRegistration(registrationId, studentId)
+
+    logToTerminal({
+      type: 'API_CALL',
+      message: `cancelRegistration | Registration: ${registrationId} | Event: "${event?.name || 'Unknown'}"`,
+      details: {
+        registrationId,
+        eventName: event?.name,
+        studentId,
+        status: result.success ? 'SUCCESS' : 'FAILED',
+        message: result.message,
+      },
+      level: result.success ? 'info' : 'error',
+    })
+
+    return result
+  }
+
+  const handleCreateEvent = (input: CreateEventInput) => {
+    const result = dataCreateEvent(input)
+
+    logToTerminal({
+      type: 'API_CALL',
+      message: `createEvent | Name: "${input.name}"`,
+      details: {
+        name: input.name,
+        venue: input.venue,
+        date: input.date,
+        capacity: input.capacity,
+        category: input.category,
+        status: result.success ? 'SUCCESS' : 'FAILED',
+        message: result.message,
+        createdEventId: result.event?.id,
+        errors: result.errors,
+      },
+      level: result.success ? 'info' : 'error',
+    })
+
+    return result
+  }
+
+  const handleUpdateEvent = (id: string, updates: UpdateEventInput) => {
+    const result = dataUpdateEvent(id, updates)
+
+    logToTerminal({
+      type: 'API_CALL',
+      message: `updateEvent | ID: ${id}`,
+      details: {
+        eventId: id,
+        updates,
+        status: result.success ? 'SUCCESS' : 'FAILED',
+        message: result.message,
+        errors: result.errors,
+      },
+      level: result.success ? 'info' : 'error',
+    })
+
+    return result
+  }
+
+  const handleCancelEvent = (id: string) => {
+    const event = seedEvents.find((e) => e.id === id)
+    const result = dataCancelEvent(id)
+
+    logToTerminal({
+      type: 'API_CALL',
+      message: `cancelEvent | "${event?.name || id}"`,
+      details: {
+        eventId: id,
+        eventName: event?.name,
+        status: result.success ? 'SUCCESS' : 'FAILED',
+        message: result.message,
+      },
+      level: result.success ? 'info' : 'error',
+    })
+
+    return result
+  }
+
+  const handleDeleteEvent = (id: string) => {
+    const event = seedEvents.find((e) => e.id === id)
+    const result = dataDeleteEvent(id)
+
+    logToTerminal({
+      type: 'API_CALL',
+      message: `deleteEvent | "${event?.name || id}"`,
+      details: {
+        eventId: id,
+        eventName: event?.name,
+        status: result.success ? 'SUCCESS' : 'FAILED',
+        message: result.message,
+      },
+      level: result.success ? 'info' : 'error',
+    })
+
+    return result
+  }
+
   return (
     <StoreContext.Provider
       value={{
         events: eventsList,
         registrations: registrationsList,
-        registerForEvent: dataRegister,
-        cancelRegistration: dataCancelRegistration,
-        createEvent: dataCreateEvent,
-        updateEvent: dataUpdateEvent,
-        cancelEvent: dataCancelEvent,
-        deleteEvent: dataDeleteEvent,
+        registerForEvent: handleRegisterForEvent,
+        cancelRegistration: handleCancelRegistration,
+        createEvent: handleCreateEvent,
+        updateEvent: handleUpdateEvent,
+        cancelEvent: handleCancelEvent,
+        deleteEvent: handleDeleteEvent,
       }}
     >
       {children}

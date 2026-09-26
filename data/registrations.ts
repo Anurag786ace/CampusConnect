@@ -125,17 +125,17 @@ export function registerStudentForEvent(
     }
   }
 
-  if (isPastEvent(event)) {
-    return {
-      success: false,
-      message: 'Registration closed. This event has already passed.',
-    }
-  }
-
   if (isFullEvent(event) || event.seatsAvailable <= 0) {
     return {
       success: false,
       message: 'This event is full. No seats are available.',
+    }
+  }
+
+  if (isPastEvent(event)) {
+    return {
+      success: false,
+      message: 'Registration closed. This event has already passed.',
     }
   }
 

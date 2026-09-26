@@ -1,15 +1,22 @@
+'use client'
+
 import Link from 'next/link'
-import { events, isPastEvent } from '@/data/events'
+import { isPastEvent } from '@/data/events'
 import EventCard from '@/components/EventCard'
+import { useStore } from '@/components/StoreProvider'
 
 export default function HomePage() {
-  const upcoming = events
-    .filter((e) => !isPastEvent(e) && !e.cancelled)
+  const { events } = useStore()
+
+  const activeEvents = events.filter((e) => !e.cancelled)
+  const upcoming = activeEvents
+    .filter((e) => !isPastEvent(e))
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
     .slice(0, 4)
 
-  const venueCount = new Set(events.map((e) => e.venue)).size
-  const upcomingCount = events.filter((e) => !isPastEvent(e)).length
+  const venueCount = new Set(activeEvents.map((e) => e.venue)).size
+  const upcomingCount = activeEvents.filter((e) => !isPastEvent(e)).length
+  const totalSeats = activeEvents.reduce((s, e) => s + e.capacity, 0)
 
   return (
     <>
@@ -55,10 +62,7 @@ export default function HomePage() {
             <Stat label="Upcoming events" value={String(upcomingCount)} />
             <Stat label="Campus venues" value={String(venueCount)} />
             <Stat label="Categories" value="6" />
-            <Stat
-              label="Total seats posted"
-              value={String(events.reduce((s, e) => s + e.capacity, 0))}
-            />
+            <Stat label="Total seats posted" value={String(totalSeats)} />
           </div>
         </div>
       </section>

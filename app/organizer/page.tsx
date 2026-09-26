@@ -1,13 +1,54 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { useAuth } from '@/components/AuthProvider'
-import { events } from '@/data/events'
+import { CampusEvent, EventCategory, EventValidationErrors } from '@/data/events'
 import EmptyState from '@/components/EmptyState'
 import StatusBadge from '@/components/StatusBadge'
+import { useStore } from '@/components/StoreProvider'
+
+const CATEGORIES: EventCategory[] = [
+  'Tech',
+  'Cultural',
+  'Sports',
+  'Workshop',
+  'Career',
+  'Music',
+]
+
+interface EventFormData {
+  name: string
+  description: string
+  date: string
+  venue: string
+  category: EventCategory
+  capacity: number
+}
+
+const INITIAL_FORM: EventFormData = {
+  name: '',
+  description: '',
+  date: '2026-10-15T10:00',
+  venue: '',
+  category: 'Tech',
+  capacity: 50,
+}
 
 export default function OrganizerPage() {
   const { currentUser } = useAuth()
+  const { events, createEvent, updateEvent, cancelEvent, deleteEvent } =
+    useStore()
+
+  const [filterView, setFilterView] = useState<'my' | 'all'>('my')
+  const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null)
+  const [editingEventId, setEditingEventId] = useState<string | null>(null)
+  const [formData, setFormData] = useState<EventFormData>(INITIAL_FORM)
+  const [formErrors, setFormErrors] = useState<EventValidationErrors>({})
+  const [feedback, setFeedback] = useState<{
+    type: 'success' | 'error'
+    text: string
+  } | null>(null)
 
   if (currentUser.role !== 'organizer') {
     return (
@@ -20,7 +61,115 @@ export default function OrganizerPage() {
     )
   }
 
-  const myEvents = events.filter((e) => e.organizerId === currentUser.id)
+  const displayedEvents =
+    filterView === 'my'
+      ? events.filter((e) => e.organizerId === currentUser.id)
+      : events
+
+  const openCreateModal = () => {
+    setFormData(INITIAL_FORM)
+    setFormErrors({})
+    setEditingEventId(null)
+    setModalMode('create')
+  }
+
+  const openEditModal = (event: CampusEvent) => {
+    setFormData({
+      name: event.name,
+      description: event.description || '',
+      date: event.date.slice(0, 16),
+      venue: event.venue,
+      category: event.category,
+      capacity: event.capacity,
+    })
+    setFormErrors({})
+    setEditingEventId(event.id)
+    setModalMode('edit')
+  }
+
+  const closeModal = () => {
+    setModalMode(null)
+    setEditingEventId(null)
+    setFormErrors({})
+  }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+
+    const formattedDate =
+      formData.date.length === 16 ? `${formData.date}:00` : formData.date
+
+    if (modalMode === 'create') {
+      const res = createEvent({
+        name: formData.name,
+        description: formData.description,
+        date: formattedDate,
+        venue: formData.venue,
+        category: formData.category,
+        capacity: Number(formData.capacity),
+        organizerId: currentUser.id,
+      })
+
+      if (!res.success) {
+        if (res.errors) setFormErrors(res.errors)
+        setFeedback({ type: 'error', text: res.message })
+      } else {
+        setFeedback({ type: 'success', text: res.message })
+        closeModal()
+      }
+    } else if (modalMode === 'edit' && editingEventId) {
+      const res = updateEvent(editingEventId, {
+        name: formData.name,
+        description: formData.description,
+        date: formattedDate,
+        venue: formData.venue,
+        category: formData.category,
+        capacity: Number(formData.capacity),
+      })
+
+      if (!res.success) {
+        if (res.errors) setFormErrors(res.errors)
+        setFeedback({ type: 'error', text: res.message })
+      } else {
+        setFeedback({ type: 'success', text: res.message })
+        closeModal()
+      }
+    }
+  }
+
+  const handleCancelEvent = (event: CampusEvent) => {
+    if (
+      !window.confirm(
+        `Are you sure you want to cancel "${event.name}"? It will be hidden from students on the board.`,
+      )
+    ) {
+      return
+    }
+
+    const res = cancelEvent(event.id)
+    if (res.success) {
+      setFeedback({ type: 'success', text: res.message })
+    } else {
+      setFeedback({ type: 'error', text: res.message })
+    }
+  }
+
+  const handleDeleteEvent = (event: CampusEvent) => {
+    if (
+      !window.confirm(
+        `Are you sure you want to permanently delete "${event.name}"? This cannot be undone.`,
+      )
+    ) {
+      return
+    }
+
+    const res = deleteEvent(event.id)
+    if (res.success) {
+      setFeedback({ type: 'success', text: res.message })
+    } else {
+      setFeedback({ type: 'error', text: res.message })
+    }
+  }
 
   return (
     <section className="shell" style={{ padding: '40px 0 64px' }}>
@@ -38,35 +187,107 @@ export default function OrganizerPage() {
           <span className="eyebrow-tag">organizer console</span>
           <h1 style={{ fontSize: 30, marginTop: 10 }}>Manage your events</h1>
           <p style={{ marginTop: 8 }}>
-            {/* PARTICIPANT TASK (Task 4): wire "New event" up to a form +
-                POST /api/events, and make Edit/Cancel below call
-                PATCH/DELETE on /api/events/[id]. */}
-            This starter shows your seeded events — creating, editing, and
-            cancelling are Task 4.
+            Post new events, update venue/capacity details, or cancel events as
+            organizer <strong>{currentUser.name}</strong>.
           </p>
         </div>
         <button
           className="btn btn-primary"
-          disabled
-          title="Event creation isn't wired up yet — that's Task 4"
+          onClick={openCreateModal}
+          style={{ whiteSpace: 'nowrap' }}
         >
           + New event
         </button>
       </div>
 
-      {myEvents.length === 0 ? (
+      {feedback && (
+        <div
+          role="alert"
+          style={{
+            marginBottom: 24,
+            padding: '12px 18px',
+            borderRadius: 'var(--radius)',
+            border: `1.5px solid ${
+              feedback.type === 'success' ? 'var(--green)' : 'var(--rust)'
+            }`,
+            background:
+              feedback.type === 'success'
+                ? 'var(--green-bg)'
+                : 'var(--rust-bg)',
+            color: feedback.type === 'success' ? 'var(--green)' : 'var(--rust)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <span>{feedback.text}</span>
+          <button
+            onClick={() => setFeedback(null)}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'inherit',
+              fontWeight: 'bold',
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Filter View Selector */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 10,
+          marginBottom: 20,
+          alignItems: 'center',
+        }}
+      >
+        <span style={{ fontSize: 13.5, color: 'var(--ink-soft)' }}>View:</span>
+        <button
+          onClick={() => setFilterView('my')}
+          className={`btn ${filterView === 'my' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ padding: '6px 14px', fontSize: 13 }}
+        >
+          My Events ({events.filter((e) => e.organizerId === currentUser.id).length})
+        </button>
+        <button
+          onClick={() => setFilterView('all')}
+          className={`btn ${filterView === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ padding: '6px 14px', fontSize: 13 }}
+        >
+          All Campus Events ({events.length})
+        </button>
+      </div>
+
+      {displayedEvents.length === 0 ? (
         <EmptyState
-          title="No events posted yet"
-          description="Once you create an event, it'll show up here."
+          title="No events found"
+          description={
+            filterView === 'my'
+              ? "You haven't posted any events yet. Click '+ New event' above to create your first event."
+              : 'There are no events in the system.'
+          }
+          action={
+            filterView === 'my' ? (
+              <button className="btn btn-primary" onClick={openCreateModal}>
+                + Create event
+              </button>
+            ) : undefined
+          }
         />
       ) : (
         <ul style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {myEvents.map((event) => {
+          {displayedEvents.map((event) => {
             const status = event.cancelled
               ? 'cancelled'
               : event.seatsAvailable <= 0
                 ? 'full'
                 : 'open'
+            const isOwner = event.organizerId === currentUser.id
+
             return (
               <li
                 key={event.id}
@@ -78,20 +299,48 @@ export default function OrganizerPage() {
                   justifyContent: 'space-between',
                   gap: 16,
                   flexWrap: 'wrap',
+                  opacity: event.cancelled ? 0.7 : 1,
                 }}
               >
-                <div>
-                  <Link
-                    href={`/events/${event.id}`}
+                <div style={{ flex: '1 1 300px' }}>
+                  <div
                     style={{
-                      fontFamily: 'var(--font-display)',
-                      fontWeight: 600,
-                      fontSize: 17,
-                      textDecoration: 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      flexWrap: 'wrap',
                     }}
                   >
-                    {event.name}
-                  </Link>
+                    <Link
+                      href={`/events/${event.id}`}
+                      style={{
+                        fontFamily: 'var(--font-display)',
+                        fontWeight: 600,
+                        fontSize: 17,
+                        textDecoration: event.cancelled
+                          ? 'line-through'
+                          : 'none',
+                      }}
+                    >
+                      {event.name}
+                    </Link>
+                    <span className="eyebrow-tag" style={{ fontSize: 11 }}>
+                      {event.category}
+                    </span>
+                    {!isOwner && (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          color: 'var(--ink-soft)',
+                          background: 'var(--slate-bg)',
+                          padding: '2px 6px',
+                          borderRadius: 'var(--radius)',
+                        }}
+                      >
+                        Org: {event.organizerId}
+                      </span>
+                    )}
+                  </div>
                   <div
                     style={{
                       fontSize: 13.5,
@@ -104,25 +353,67 @@ export default function OrganizerPage() {
                       month: 'short',
                       year: 'numeric',
                     })}{' '}
-                    · {event.venue} · {event.seatsAvailable}/{event.capacity}{' '}
-                    seats
+                    · {event.venue} ·{' '}
+                    <strong>
+                      {event.seatsAvailable}/{event.capacity} seats available
+                    </strong>
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    flexWrap: 'wrap',
+                  }}
+                >
                   <StatusBadge status={status} />
+
                   <button
                     className="btn btn-secondary"
-                    disabled
-                    title="Editing isn't wired up yet — that's Task 4"
+                    onClick={() => openEditModal(event)}
+                    style={{ padding: '7px 12px', fontSize: 13 }}
                   >
                     Edit
                   </button>
+
+                  {!event.cancelled ? (
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => handleCancelEvent(event)}
+                      style={{
+                        padding: '7px 12px',
+                        fontSize: 13,
+                        color: 'var(--rust)',
+                        borderColor: 'var(--rust)',
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  ) : (
+                    <span
+                      style={{
+                        fontSize: 12,
+                        color: 'var(--rust)',
+                        fontWeight: 600,
+                      }}
+                    >
+                      Cancelled
+                    </span>
+                  )}
+
                   <button
                     className="btn btn-secondary"
-                    disabled
-                    title="Cancelling isn't wired up yet — that's Task 4"
+                    onClick={() => handleDeleteEvent(event)}
+                    style={{
+                      padding: '7px 12px',
+                      fontSize: 13,
+                      color: 'var(--ink-soft)',
+                    }}
+                    title="Permanently remove event"
                   >
-                    Cancel
+                    Delete
                   </button>
                 </div>
               </li>
@@ -130,6 +421,210 @@ export default function OrganizerPage() {
           })}
         </ul>
       )}
+
+      {/* Create / Edit Modal Dialog */}
+      {modalMode && (
+        <div
+          className="modal-overlay"
+          onClick={closeModal}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="modal-content"
+            onClick={(e) => e.stopPropagation()}
+            style={{ position: 'relative' }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 20,
+              }}
+            >
+              <h2 style={{ fontSize: 22 }}>
+                {modalMode === 'create' ? 'Create New Event' : 'Edit Event'}
+              </h2>
+              <button
+                onClick={closeModal}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: 20,
+                  cursor: 'pointer',
+                  color: 'var(--ink)',
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit}>
+              <div className="form-group">
+                <label className="form-label" htmlFor="event-name">
+                  Event Name *
+                </label>
+                <input
+                  id="event-name"
+                  type="text"
+                  required
+                  placeholder="e.g. Annual Robotics Showcase"
+                  className="form-input"
+                  value={formData.name}
+                  onChange={(e) =>
+                    setFormData({ ...formData, name: e.target.value })
+                  }
+                />
+                {formErrors.name && (
+                  <span className="form-error">{formErrors.name}</span>
+                )}
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 14,
+                }}
+              >
+                <div className="form-group">
+                  <label className="form-label" htmlFor="event-category">
+                    Category *
+                  </label>
+                  <select
+                    id="event-category"
+                    className="form-select"
+                    value={formData.category}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        category: e.target.value as EventCategory,
+                      })
+                    }
+                  >
+                    {CATEGORIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                  {formErrors.category && (
+                    <span className="form-error">{formErrors.category}</span>
+                  )}
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" htmlFor="event-capacity">
+                    Total Capacity *
+                  </label>
+                  <input
+                    id="event-capacity"
+                    type="number"
+                    min={1}
+                    required
+                    className="form-input"
+                    value={formData.capacity}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        capacity: Number(e.target.value),
+                      })
+                    }
+                  />
+                  {formErrors.capacity && (
+                    <span className="form-error">{formErrors.capacity}</span>
+                  )}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 14,
+                }}
+              >
+                <div className="form-group">
+                  <label className="form-label" htmlFor="event-date">
+                    Date & Time * (Must be in future)
+                  </label>
+                  <input
+                    id="event-date"
+                    type="datetime-local"
+                    required
+                    className="form-input"
+                    value={formData.date}
+                    onChange={(e) =>
+                      setFormData({ ...formData, date: e.target.value })
+                    }
+                  />
+                  {formErrors.date && (
+                    <span className="form-error">{formErrors.date}</span>
+                  )}
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" htmlFor="event-venue">
+                    Venue *
+                  </label>
+                  <input
+                    id="event-venue"
+                    type="text"
+                    required
+                    placeholder="e.g. Auditorium Hall A"
+                    className="form-input"
+                    value={formData.venue}
+                    onChange={(e) =>
+                      setFormData({ ...formData, venue: e.target.value })
+                    }
+                  />
+                  {formErrors.venue && (
+                    <span className="form-error">{formErrors.venue}</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="event-desc">
+                  Description
+                </label>
+                <textarea
+                  id="event-desc"
+                  rows={3}
+                  placeholder="Provide schedule details, what participants should bring, etc."
+                  className="form-textarea"
+                  value={formData.description}
+                  onChange={(e) =>
+                    setFormData({ ...formData, description: e.target.value })
+                  }
+                />
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  gap: 12,
+                  marginTop: 24,
+                }}
+              >
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={closeModal}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  {modalMode === 'create' ? 'Create Event' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </section>
   )
 }
+

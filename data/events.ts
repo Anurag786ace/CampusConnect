@@ -248,21 +248,261 @@ export function searchEventsByName(
   eventList: CampusEvent[],
   query: string,
 ): CampusEvent[] {
-  // TODO(participant): implement case-insensitive partial name search.
-  return eventList
+  const trimmed = query.trim().toLowerCase()
+  if (!trimmed) return eventList
+  return eventList.filter((event) =>
+    event.name.toLowerCase().includes(trimmed),
+  )
 }
 
 /**
  * PARTICIPANT TASK (Task 1 — Event Listing):
  *
- * This is a stub. Right now it ignores `category` and returns every
- * event unchanged. You need to filter by exact category match, and
- * make sure it composes with searchEventsByName above.
+ * Filter by exact category match, and return all events if category is 'All'.
  */
 export function filterEventsByCategory(
   eventList: CampusEvent[],
   category: EventCategory | 'All',
 ): CampusEvent[] {
-  // TODO(participant): implement category filtering.
-  return eventList
+  if (category === 'All') return eventList
+  return eventList.filter((event) => event.category === category)
 }
+
+export type EventChangeListener = () => void
+const eventListeners = new Set<EventChangeListener>()
+
+export function onEventsChange(listener: EventChangeListener): () => void {
+  eventListeners.add(listener)
+  return () => {
+    eventListeners.delete(listener)
+  }
+}
+
+export function notifyEventsChanged() {
+  eventListeners.forEach((listener) => {
+    try {
+      listener()
+    } catch (e) {
+      console.error('Error in event listener', e)
+    }
+  })
+}
+
+export interface EventValidationErrors {
+  name?: string
+  date?: string
+  venue?: string
+  capacity?: string
+  category?: string
+  description?: string
+}
+
+export function validateEventInput(input: {
+  name?: string
+  date?: string
+  venue?: string
+  capacity?: number
+  category?: EventCategory
+}): { isValid: boolean; errors: EventValidationErrors } {
+  const errors: EventValidationErrors = {}
+
+  if (!input.name || !input.name.trim()) {
+    errors.name = 'Event name is required.'
+  }
+
+  if (!input.venue || !input.venue.trim()) {
+    errors.venue = 'Venue is required.'
+  }
+
+  if (!input.date) {
+    errors.date = 'Event date is required.'
+  } else {
+    const parsedDate = new Date(input.date)
+    if (isNaN(parsedDate.getTime())) {
+      errors.date = 'Invalid date format.'
+    } else if (parsedDate.getTime() <= TODAY.getTime()) {
+      errors.date = 'Date must be in the future (after ' + TODAY.toISOString().split('T')[0] + ').'
+    }
+  }
+
+  if (input.capacity === undefined || input.capacity === null) {
+    errors.capacity = 'Capacity is required.'
+  } else if (!Number.isInteger(input.capacity) || input.capacity <= 0) {
+    errors.capacity = 'Capacity must be a positive whole number.'
+  }
+
+  const validCategories: EventCategory[] = [
+    'Tech',
+    'Cultural',
+    'Sports',
+    'Workshop',
+    'Career',
+    'Music',
+  ]
+  if (input.category && !validCategories.includes(input.category)) {
+    errors.category = 'Invalid category selected.'
+  }
+
+  return {
+    isValid: Object.keys(errors).length === 0,
+    errors,
+  }
+}
+
+export interface CreateEventInput {
+  name: string
+  description: string
+  date: string
+  venue: string
+  category: EventCategory
+  capacity: number
+  organizerId: string
+}
+
+export function createEvent(input: CreateEventInput): {
+  success: boolean
+  message: string
+  event?: CampusEvent
+  errors?: EventValidationErrors
+} {
+  const validation = validateEventInput(input)
+  if (!validation.isValid) {
+    return {
+      success: false,
+      message: 'Validation failed. Please check form errors.',
+      errors: validation.errors,
+    }
+  }
+
+  const newEvent: CampusEvent = {
+    id: `evt-${Date.now()}`,
+    name: input.name.trim(),
+    description: input.description?.trim() || '',
+    date: input.date,
+    venue: input.venue.trim(),
+    category: input.category,
+    capacity: input.capacity,
+    seatsAvailable: input.capacity,
+    organizerId: input.organizerId,
+    cancelled: false,
+  }
+
+  events.push(newEvent)
+  notifyEventsChanged()
+
+  return {
+    success: true,
+    message: `Event "${newEvent.name}" created successfully!`,
+    event: newEvent,
+  }
+}
+
+export interface UpdateEventInput {
+  name?: string
+  description?: string
+  date?: string
+  venue?: string
+  category?: EventCategory
+  capacity?: number
+}
+
+export function updateEvent(
+  id: string,
+  updates: UpdateEventInput,
+): {
+  success: boolean
+  message: string
+  event?: CampusEvent
+  errors?: EventValidationErrors
+} {
+  const event = getEventById(id)
+  if (!event) {
+    return { success: false, message: 'Event not found.' }
+  }
+
+  const validation = validateEventInput({
+    name: updates.name ?? event.name,
+    date: updates.date ?? event.date,
+    venue: updates.venue ?? event.venue,
+    capacity: updates.capacity ?? event.capacity,
+    category: updates.category ?? event.category,
+  })
+
+  if (!validation.isValid) {
+    return {
+      success: false,
+      message: 'Validation failed. Please check form errors.',
+      errors: validation.errors,
+    }
+  }
+
+  if (updates.capacity !== undefined) {
+    const bookedSeats = event.capacity - event.seatsAvailable
+    if (updates.capacity < bookedSeats) {
+      return {
+        success: false,
+        message: `Capacity cannot be less than already registered seats (${bookedSeats}).`,
+        errors: {
+          capacity: `Cannot be less than booked seats (${bookedSeats}).`,
+        },
+      }
+    }
+    // Update seatsAvailable accurately
+    event.seatsAvailable = updates.capacity - bookedSeats
+    event.capacity = updates.capacity
+  }
+
+  if (updates.name !== undefined) event.name = updates.name.trim()
+  if (updates.description !== undefined)
+    event.description = updates.description.trim()
+  if (updates.date !== undefined) event.date = updates.date
+  if (updates.venue !== undefined) event.venue = updates.venue.trim()
+  if (updates.category !== undefined) event.category = updates.category
+
+  notifyEventsChanged()
+
+  return {
+    success: true,
+    message: `Event "${event.name}" updated successfully!`,
+    event,
+  }
+}
+
+export function cancelEvent(id: string): {
+  success: boolean
+  message: string
+  event?: CampusEvent
+} {
+  const event = getEventById(id)
+  if (!event) {
+    return { success: false, message: 'Event not found.' }
+  }
+
+  event.cancelled = true
+  notifyEventsChanged()
+
+  return {
+    success: true,
+    message: `Event "${event.name}" has been cancelled.`,
+    event,
+  }
+}
+
+export function deleteEvent(id: string): {
+  success: boolean
+  message: string
+} {
+  const index = events.findIndex((e) => e.id === id)
+  if (index === -1) {
+    return { success: false, message: 'Event not found.' }
+  }
+
+  const [removed] = events.splice(index, 1)
+  notifyEventsChanged()
+
+  return {
+    success: true,
+    message: `Event "${removed.name}" deleted successfully.`,
+  }
+}
+

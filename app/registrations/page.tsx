@@ -1,14 +1,21 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { useAuth } from '@/components/AuthProvider'
-import { getRegistrationsForStudent } from '@/data/registrations'
-import { getEventById } from '@/data/events'
+import { isPastEvent } from '@/data/events'
 import StatusBadge from '@/components/StatusBadge'
 import EmptyState from '@/components/EmptyState'
+import { useStore } from '@/components/StoreProvider'
 
 export default function RegistrationsPage() {
   const { currentUser } = useAuth()
+  const { events, registrations, cancelRegistration } = useStore()
+  const [feedback, setFeedback] = useState<{
+    type: 'success' | 'error'
+    text: string
+  } | null>(null)
+  const [activeTab, setActiveTab] = useState<'active' | 'cancelled'>('active')
 
   if (currentUser.role !== 'student') {
     return (
@@ -21,7 +28,63 @@ export default function RegistrationsPage() {
     )
   }
 
-  const myRegistrations = getRegistrationsForStudent(currentUser.id)
+  // Get all registrations for this student
+  const studentRegistrations = registrations.filter(
+    (reg) => reg.studentId === currentUser.id,
+  )
+
+  // Map each registration to its event and filter out:
+  // 1. Missing events
+  // 2. Events that have been cancelled by organizers (Task 4: "Hide cancelled events and their registrations from students")
+  const validRegistrations = studentRegistrations
+    .map((reg) => {
+      const event = events.find((e) => e.id === reg.eventId)
+      return { reg, event }
+    })
+    .filter(
+      (item): item is { reg: (typeof studentRegistrations)[0]; event: NonNullable<typeof item.event> } =>
+        item.event !== undefined && !item.event.cancelled,
+    )
+
+
+  // Split into upcoming confirmed vs past confirmed (Fix for Task 5: Cancelled registrations appearing)
+  const upcomingRegistrations = validRegistrations.filter(
+    ({ reg, event }) => reg.status === 'confirmed' && !isPastEvent(event),
+  )
+
+  const pastRegistrations = validRegistrations.filter(
+    ({ reg, event }) => reg.status === 'confirmed' && isPastEvent(event),
+  )
+
+  const cancelledRegistrations = validRegistrations.filter(
+    ({ reg }) => reg.status === 'cancelled',
+  )
+
+  const handleCancel = (registrationId: string, eventName: string) => {
+    if (
+      !window.confirm(
+        `Are you sure you want to cancel your registration for "${eventName}"? Your seat will be made available to other students.`,
+      )
+    ) {
+      return
+    }
+
+    const result = cancelRegistration(registrationId, currentUser.id)
+    if (result.success) {
+      setFeedback({
+        type: 'success',
+        text: result.message,
+      })
+    } else {
+      setFeedback({
+        type: 'error',
+        text: result.message,
+      })
+    }
+  }
+
+  const hasAnyActive =
+    upcomingRegistrations.length > 0 || pastRegistrations.length > 0
 
   return (
     <section className="shell" style={{ padding: '40px 0 64px' }}>
@@ -29,29 +92,295 @@ export default function RegistrationsPage() {
         <span className="eyebrow-tag">signed up as {currentUser.name}</span>
         <h1 style={{ fontSize: 30, marginTop: 10 }}>My registrations</h1>
         <p style={{ marginTop: 8 }}>
-          Everything you've registered for. This starter shows seed data —
-          {/* PARTICIPANT TASK (Task 3): split into upcoming/past sections,
-              and add a working cancel button. */}{' '}
-          separating upcoming from past, and cancelling, are Task 3.
+          Manage your campus event registrations. Upcoming events can be
+          cancelled to free up seats for peers.
         </p>
       </div>
 
-      {myRegistrations.length === 0 ? (
+      {feedback && (
+        <div
+          role="alert"
+          style={{
+            marginBottom: 24,
+            padding: '12px 18px',
+            borderRadius: 'var(--radius)',
+            border: `1.5px solid ${
+              feedback.type === 'success' ? 'var(--green)' : 'var(--rust)'
+            }`,
+            background:
+              feedback.type === 'success'
+                ? 'var(--green-bg)'
+                : 'var(--rust-bg)',
+            color: feedback.type === 'success' ? 'var(--green)' : 'var(--rust)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <span>{feedback.text}</span>
+          <button
+            onClick={() => setFeedback(null)}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'inherit',
+              fontWeight: 'bold',
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Tabs to switch between Active and Cancelled */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          marginBottom: 24,
+          borderBottom: '1.5px solid var(--line)',
+          paddingBottom: 8,
+        }}
+      >
+        <button
+          onClick={() => setActiveTab('active')}
+          style={{
+            background: 'none',
+            border: 'none',
+            fontSize: 15,
+            fontWeight: 600,
+            cursor: 'pointer',
+            padding: '6px 12px',
+            borderRadius: 'var(--radius)',
+            color: activeTab === 'active' ? 'var(--ink)' : 'var(--ink-soft)',
+            borderBottom:
+              activeTab === 'active' ? '2.5px solid var(--ink)' : 'none',
+          }}
+        >
+          Active registrations ({upcomingRegistrations.length + pastRegistrations.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('cancelled')}
+          style={{
+            background: 'none',
+            border: 'none',
+            fontSize: 15,
+            fontWeight: 600,
+            cursor: 'pointer',
+            padding: '6px 12px',
+            borderRadius: 'var(--radius)',
+            color:
+              activeTab === 'cancelled' ? 'var(--ink)' : 'var(--ink-soft)',
+            borderBottom:
+              activeTab === 'cancelled' ? '2.5px solid var(--ink)' : 'none',
+          }}
+        >
+          Cancelled ({cancelledRegistrations.length})
+        </button>
+      </div>
+
+      {activeTab === 'active' ? (
+        !hasAnyActive ? (
+          <EmptyState
+            title="No active registrations"
+            description="You are not currently registered for any upcoming or past campus events."
+            action={
+              <Link href="/events" className="btn btn-primary">
+                Browse events
+              </Link>
+            }
+          />
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
+            {/* Upcoming section */}
+            <div>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  marginBottom: 14,
+                }}
+              >
+                <h2 style={{ fontSize: 20 }}>Upcoming events</h2>
+                <span className="eyebrow-tag">
+                  {upcomingRegistrations.length}
+                </span>
+              </div>
+              {upcomingRegistrations.length === 0 ? (
+                <p style={{ fontSize: 14, color: 'var(--ink-soft)' }}>
+                  No upcoming events registered. Check out the board to find new
+                  events!
+                </p>
+              ) : (
+                <ul
+                  style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+                >
+                  {upcomingRegistrations.map(({ reg, event }) => (
+                    <li
+                      key={reg.id}
+                      className="card-surface"
+                      style={{
+                        padding: '18px 20px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 16,
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div>
+                        <Link
+                          href={`/events/${event.id}`}
+                          style={{
+                            fontFamily: 'var(--font-display)',
+                            fontWeight: 600,
+                            fontSize: 17,
+                            textDecoration: 'none',
+                          }}
+                        >
+                          {event.name}
+                        </Link>
+                        <div
+                          style={{
+                            fontSize: 13.5,
+                            color: 'var(--ink-soft)',
+                            marginTop: 4,
+                          }}
+                        >
+                          {new Date(event.date).toLocaleDateString('en-IN', {
+                            weekday: 'short',
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                          })}{' '}
+                          · {event.venue} ·{' '}
+                          <span style={{ color: 'var(--amber-ink)' }}>
+                            {event.category}
+                          </span>
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 12,
+                        }}
+                      >
+                        <StatusBadge status="open" />
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => handleCancel(reg.id, event.name)}
+                          style={{ padding: '8px 14px', fontSize: 13.5 }}
+                        >
+                          Cancel registration
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Past section */}
+            {pastRegistrations.length > 0 && (
+              <div>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    marginBottom: 14,
+                  }}
+                >
+                  <h2 style={{ fontSize: 20 }}>Past events</h2>
+                  <span className="eyebrow-tag">
+                    {pastRegistrations.length}
+                  </span>
+                </div>
+                <ul
+                  style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+                >
+                  {pastRegistrations.map(({ reg, event }) => (
+                    <li
+                      key={reg.id}
+                      className="card-surface"
+                      style={{
+                        padding: '18px 20px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 16,
+                        flexWrap: 'wrap',
+                        opacity: 0.85,
+                      }}
+                    >
+                      <div>
+                        <Link
+                          href={`/events/${event.id}`}
+                          style={{
+                            fontFamily: 'var(--font-display)',
+                            fontWeight: 600,
+                            fontSize: 17,
+                            textDecoration: 'none',
+                          }}
+                        >
+                          {event.name}
+                        </Link>
+                        <div
+                          style={{
+                            fontSize: 13.5,
+                            color: 'var(--ink-soft)',
+                            marginTop: 4,
+                          }}
+                        >
+                          {new Date(event.date).toLocaleDateString('en-IN', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                          })}{' '}
+                          · {event.venue}
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 12,
+                        }}
+                      >
+                        <StatusBadge status="past" />
+                        <span
+                          style={{
+                            fontSize: 13,
+                            color: 'var(--ink-soft)',
+                            fontStyle: 'italic',
+                          }}
+                        >
+                          Event ended
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )
+      ) : cancelledRegistrations.length === 0 ? (
         <EmptyState
-          title="No registrations yet"
-          description="Once you register for an event, it'll show up here."
-          action={
-            <Link href="/events" className="btn btn-primary">
-              Browse events
-            </Link>
-          }
+          title="No cancelled registrations"
+          description="You haven't cancelled any event registrations."
         />
       ) : (
-        <ul style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {myRegistrations.map((reg) => {
-            const event = getEventById(reg.eventId)
-            if (!event) return null
-            return (
+        <div>
+          <p style={{ marginBottom: 14, fontSize: 14, color: 'var(--ink-soft)' }}>
+            These are events you previously registered for and subsequently
+            cancelled.
+          </p>
+          <ul style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {cancelledRegistrations.map(({ reg, event }) => (
               <li
                 key={reg.id}
                 className="card-surface"
@@ -62,6 +391,7 @@ export default function RegistrationsPage() {
                   justifyContent: 'space-between',
                   gap: 16,
                   flexWrap: 'wrap',
+                  opacity: 0.75,
                 }}
               >
                 <div>
@@ -92,24 +422,14 @@ export default function RegistrationsPage() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <StatusBadge
-                    status={reg.status === 'cancelled' ? 'cancelled' : 'open'}
-                  />
-                  {/* PARTICIPANT TASK (Task 3): wire this up to
-                      DELETE /api/registrations/[id] and update seats. */}
-                  <button
-                    className="btn btn-secondary"
-                    disabled
-                    title="Cancellation isn't wired up yet — that's Task 3"
-                  >
-                    Cancel
-                  </button>
+                  <StatusBadge status="cancelled" />
                 </div>
               </li>
-            )
-          })}
-        </ul>
+            ))}
+          </ul>
+        </div>
       )}
     </section>
   )
 }
+

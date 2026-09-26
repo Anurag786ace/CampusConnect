@@ -57,7 +57,36 @@ export function onRegistrationsChange(
   }
 }
 
+export const REGISTRATIONS_STORAGE_KEY = 'campus_connect_registrations'
+
+export function loadRegistrationsFromStorage(): Registration[] {
+  if (typeof window === 'undefined') return registrations
+  try {
+    const raw = localStorage.getItem(REGISTRATIONS_STORAGE_KEY)
+    if (raw) {
+      const stored: Registration[] = JSON.parse(raw)
+      if (Array.isArray(stored) && stored.length > 0) {
+        registrations.length = 0
+        registrations.push(...stored)
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load registrations from localStorage', e)
+  }
+  return registrations
+}
+
+export function saveRegistrationsToStorage(): void {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(REGISTRATIONS_STORAGE_KEY, JSON.stringify(registrations))
+  } catch (e) {
+    console.error('Failed to save registrations to localStorage', e)
+  }
+}
+
 export function notifyRegistrationsChanged() {
+  saveRegistrationsToStorage()
   registrationListeners.forEach((listener) => {
     try {
       listener()

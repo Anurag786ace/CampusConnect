@@ -12,6 +12,8 @@ import {
   CreateEventInput,
   UpdateEventInput,
   EventValidationErrors,
+  loadEventsFromStorage,
+  saveEventsToStorage,
 } from '@/data/events'
 import {
   registrations as seedRegistrations,
@@ -19,6 +21,8 @@ import {
   registerStudentForEvent as dataRegister,
   cancelStudentRegistration as dataCancelRegistration,
   onRegistrationsChange,
+  loadRegistrationsFromStorage,
+  saveRegistrationsToStorage,
 } from '@/data/registrations'
 
 import { logToTerminal } from '@/lib/logger'
@@ -69,6 +73,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   ])
 
   useEffect(() => {
+    // 1. Restore local registrations & events from localStorage after initial hydration
+    try {
+      loadRegistrationsFromStorage()
+      setRegistrationsList([...seedRegistrations])
+
+      loadEventsFromStorage()
+      setEventsList([...seedEvents])
+    } catch {
+      // Ignore
+    }
+
     const unsubEvents = onEventsChange(() => {
       setEventsList([...seedEvents])
     })
@@ -86,6 +101,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const result = dataRegister(eventId, studentId)
     const eventAfter = seedEvents.find((e) => e.id === eventId)
 
+    if (result.success) {
+      saveRegistrationsToStorage()
+      saveEventsToStorage()
+    }
+
     logToTerminal({
       type: 'API_CALL',
       message: `registerForEvent | Event: "${eventBefore?.name || eventId}" | Student: ${studentId}`,
@@ -96,9 +116,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         status: result.success ? 'SUCCESS' : 'FAILED',
         message: result.message,
         seatsRemaining: eventAfter?.seatsAvailable,
+        storage: result.success ? 'SAVED_LOCALLY' : undefined,
       },
       level: result.success ? 'info' : 'error',
     })
+
+    if (result.success) {
+      logToTerminal({
+        type: 'ACTION',
+        message: `Stored registration for "${eventBefore?.name || eventId}" locally in browser storage.`,
+        level: 'info',
+      })
+    }
 
     return result
   }
@@ -107,6 +136,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const reg = seedRegistrations.find((r) => r.id === registrationId)
     const event = reg ? seedEvents.find((e) => e.id === reg.eventId) : undefined
     const result = dataCancelRegistration(registrationId, studentId)
+
+    if (result.success) {
+      saveRegistrationsToStorage()
+      saveEventsToStorage()
+    }
 
     logToTerminal({
       type: 'API_CALL',
@@ -117,9 +151,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         studentId,
         status: result.success ? 'SUCCESS' : 'FAILED',
         message: result.message,
+        storage: result.success ? 'UPDATED_LOCALLY' : undefined,
       },
       level: result.success ? 'info' : 'error',
     })
+
+    if (result.success) {
+      logToTerminal({
+        type: 'ACTION',
+        message: `Updated registration cancellation for "${event?.name || registrationId}" locally in browser storage.`,
+        level: 'info',
+      })
+    }
 
     return result
   }

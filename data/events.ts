@@ -279,7 +279,36 @@ export function onEventsChange(listener: EventChangeListener): () => void {
   }
 }
 
+export const EVENTS_STORAGE_KEY = 'campus_connect_events'
+
+export function loadEventsFromStorage(): CampusEvent[] {
+  if (typeof window === 'undefined') return events
+  try {
+    const raw = localStorage.getItem(EVENTS_STORAGE_KEY)
+    if (raw) {
+      const stored: CampusEvent[] = JSON.parse(raw)
+      if (Array.isArray(stored) && stored.length > 0) {
+        events.length = 0
+        events.push(...stored)
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load events from localStorage', e)
+  }
+  return events
+}
+
+export function saveEventsToStorage(): void {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(EVENTS_STORAGE_KEY, JSON.stringify(events))
+  } catch (e) {
+    console.error('Failed to save events to localStorage', e)
+  }
+}
+
 export function notifyEventsChanged() {
+  saveEventsToStorage()
   eventListeners.forEach((listener) => {
     try {
       listener()
